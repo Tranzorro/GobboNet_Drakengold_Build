@@ -1,0 +1,8 @@
+{
+  "name": "GobboNet",
+  "description": "A self-hosted, offline-first AI chat terminal and character card workspace featuring local model controls, personas, lore memory, and streaming generation.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

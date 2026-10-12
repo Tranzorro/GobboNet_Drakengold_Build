@@ -527,13 +527,39 @@ async function runGenerationStream(thread, assistantMsg, requestBody, opts = {})
 
   // ── Legacy direct stream (file:// mode, or a fileserver without jobs) ──
   try {
-    const resp = await privacyFetch(LLAMA_URL + '/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: abortController ? abortController.signal : undefined
-    });
-    if (!resp.ok) throw new Error(`llama-server returned ${resp.status}: ${resp.statusText}`);
+    let targetUrl = LLAMA_URL + '/v1/chat/completions';
+    let resp;
+    try {
+      resp = await privacyFetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal: abortController ? abortController.signal : undefined
+      });
+    } catch (fetchErr) {
+      // If default LLAMA_URL is unreachable and we have a detected local server (e.g. KoboldCpp)
+      if (detectedLlmServer && detectedLlmServer.localServerDetected && detectedLlmServer.url && !targetUrl.startsWith(detectedLlmServer.url)) {
+        console.log('[generation] Primary proxy unreachable, attempting detected server directly:', detectedLlmServer.url);
+        try {
+          targetUrl = detectedLlmServer.url + '/v1/chat/completions';
+          resp = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+            signal: abortController ? abortController.signal : undefined
+          });
+        } catch (directErr) {
+          if (detectedLlmServer.port === 5001 || detectedLlmServer.port === 5000) {
+            throw new Error(`KoboldCpp on :${detectedLlmServer.port} blocked cross-origin request. Please launch KoboldCpp with the '--cors' flag (e.g. ./koboldcpp-linux-x64 --cors) or set 'llm_url' in config.toml`);
+          }
+          throw directErr;
+        }
+      } else {
+        throw fetchErr;
+      }
+    }
+
+    if (!resp.ok) throw new Error(`LLM server returned ${resp.status}: ${resp.statusText}`);
     const reader = resp.body.getReader();
     while (true) {
       const { done, value } = await reader.read();

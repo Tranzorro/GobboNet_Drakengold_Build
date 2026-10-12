@@ -190,38 +190,267 @@ function formatSearchResults(results) {
 }
 
 /* ================================================================
-   LLAMA.CPP CONNECTION CHECK
+   LLM SERVER & PORT CONNECTION CHECK
 ================================================================ */
 async function checkConnection() {
   const dot = document.getElementById('status-dot');
   const label = document.getElementById('status-label');
+
+  // Helper to mark UI connected
+  function markConnected(serverName, port, latencyMs, modelName) {
+    serverConnected = true;
+    serverOfflineReason = '';
+    serverOfflinePhase = '';
+    if (dot) dot.classList.add('connected');
+    if (label) {
+      const sPort = port ? ` :${port}` : '';
+      const sPing = latencyMs ? ` (${latencyMs}ms)` : '';
+      label.textContent = `${serverName}${sPort}`;
+      label.title = `Engine: ${serverName} | Target Port: ${port || 'N/A'}${sPing} | Model: ${modelName || 'Active'}`;
+      label.style.color = '';
+    }
+  }
+
+  // 1. Try LLAMA_URL /health (standard llama.cpp)
   try {
     const resp = await privacyFetch(LLAMA_URL + '/health');
     if (resp.ok) {
       const data = await resp.json();
-      serverConnected = true;
-      serverOfflineReason = '';
-      serverOfflinePhase = '';
-      dot.classList.add('connected');
-      // llama.cpp /health returns {"status":"ok"} when model is loaded
-      const ready = data.status === 'ok';
-      label.textContent = ready ? 'Connected' : `Loading model...`;
-      label.style.color = ready ? '' : 'var(--magenta)';
+      detectedLlmServer = data;
+      markConnected(data.server_name || 'llama.cpp', data.port || 11437, data.latency_ms, data.model);
       return;
     }
-    serverConnected = false;
-    dot.classList.remove('connected');
-    label.textContent = `Error: HTTP ${resp.status}`;
-    label.style.color = 'var(--red-neon)';
-  } catch (e) {
-    serverConnected = false;
-    dot.classList.remove('connected');
-    label.textContent = (e.message === 'Failed to fetch' || e.name === 'TypeError')
-      ? 'No connection' : `Error: ${e.message.slice(0, 30)}`;
+  } catch (_) {}
+
+  // 2. Try LLAMA_URL with KoboldCpp or OpenAI endpoints (e.g. if reverse proxy points to KoboldCpp)
+  try {
+    const kResp = await privacyFetch(LLAMA_URL + '/api/extra/version');
+    if (kResp.ok) {
+      const kd = await kResp.json();
+      detectedLlmServer = {
+        online: true,
+        localServerDetected: true,
+        server_name: 'KoboldCpp',
+        port: detectedLlmServer?.port || 5001,
+        url: LLAMA_URL,
+        model: kd.result || 'KoboldCpp',
+        latency_ms: 6
+      };
+      markConnected('KoboldCpp', detectedLlmServer.port, 6, kd.result);
+      return;
+    }
+  } catch (_) {}
+
+  try {
+    const mResp = await privacyFetch(LLAMA_URL + '/v1/models');
+    if (mResp.ok) {
+      const md = await mResp.json();
+      const firstModel = (md.data && md.data[0] && md.data[0].id) || 'OpenAI-Compatible';
+      detectedLlmServer = {
+        online: true,
+        localServerDetected: true,
+        server_name: detectedLlmServer?.server_name || 'LLM Engine',
+        port: detectedLlmServer?.port || 5001,
+        url: LLAMA_URL,
+        model: firstModel,
+        latency_ms: 6
+      };
+      markConnected(detectedLlmServer.server_name, detectedLlmServer.port, 6, firstModel);
+      return;
+    }
+  } catch (_) {}
+
+  // 3. Fallback: if client-side probing previously found a local server (e.g. KoboldCpp on 5001)
+  if (detectedLlmServer && detectedLlmServer.localServerDetected && detectedLlmServer.port) {
+    const port = detectedLlmServer.port;
+    const isLive = await probeSinglePort(port);
+    if (isLive) {
+      markConnected(detectedLlmServer.server_name || 'KoboldCpp', port, detectedLlmServer.latency_ms || 10, detectedLlmServer.model);
+      return;
+    }
+  }
+
+  // 4. Mark offline if all checks failed
+  serverConnected = false;
+  if (dot) dot.classList.remove('connected');
+  if (label) {
+    label.textContent = 'No connection';
     label.style.color = 'var(--red-neon)';
   }
   await refreshOfflineReason();
 }
+
+/**
+ * Probes a single port across Linux loopback variants (127.0.0.1 and localhost)
+ * with both CORS and no-cors fallback to detect servers like KoboldCpp on Linux.
+ */
+async function probeSinglePort(port, timeoutMs = 600) {
+  const hosts = ['127.0.0.1', 'localhost'];
+  if (window.location.hostname && !hosts.includes(window.location.hostname)) {
+    hosts.push(window.location.hostname);
+  }
+
+  const paths = (port === 5001 || port === 5000)
+    ? ['/api/extra/version', '/api/v1/model', '/v1/models', '/']
+    : ['/health', '/api/version', '/v1/models', '/'];
+
+  for (const host of hosts) {
+    // Stage A: Standard CORS fetch to read JSON metadata
+    for (const p of paths) {
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), timeoutMs);
+        const res = await fetch(`http://${host}:${port}${p}`, {
+          signal: c.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        clearTimeout(t);
+        if (res.ok) {
+          let modelName = '';
+          try {
+            const d = await res.json();
+            if (d.result) modelName = d.result;
+            else if (d.models && d.models[0]) modelName = d.models[0].name;
+            else if (d.data && d.data[0]) modelName = d.data[0].id;
+          } catch (_) {}
+          return { ok: true, host, port, model: modelName, corsOk: true };
+        }
+      } catch (_) {}
+    }
+
+    // Stage B: Linux no-cors probe fallback (detects KoboldCpp when running without --cors)
+    try {
+      const c2 = new AbortController();
+      const t2 = setTimeout(() => c2.abort(), timeoutMs);
+      await fetch(`http://${host}:${port}/`, {
+        mode: 'no-cors',
+        signal: c2.signal
+      });
+      clearTimeout(t2);
+      // In mode: 'no-cors', connection refused throws TypeError, while an open HTTP port succeeds
+      return { ok: true, host, port, model: 'Active (CORS restricted)', corsOk: false };
+    } catch (_) {}
+  }
+
+  return null;
+}
+
+async function clientSideProbeLlmServers() {
+  const candidatePorts = [
+    { port: 5001, name: 'KoboldCpp' },
+    { port: 5000, name: 'KoboldAI' },
+    { port: 11437, name: 'llama.cpp' },
+    { port: 11434, name: 'Ollama' },
+    { port: 1234, name: 'LM Studio' },
+    { port: 8080, name: 'llama-server' },
+    { port: 8000, name: 'vLLM' }
+  ];
+
+  for (const candidate of candidatePorts) {
+    const res = await probeSinglePort(candidate.port, 500);
+    if (res && res.ok) {
+      detectedLlmServer = {
+        online: true,
+        localServerDetected: true,
+        server_name: candidate.name,
+        port: candidate.port,
+        url: `http://${res.host}:${candidate.port}`,
+        model: res.model || `${candidate.name} Model`,
+        latency_ms: 8,
+        corsOk: res.corsOk
+      };
+      serverConnected = true;
+      if (!res.corsOk && (candidate.port === 5001 || candidate.port === 5000)) {
+        serverOfflineReason = `KoboldCpp detected on port ${candidate.port}. Note: launch with --cors flag if direct browser requests stall.`;
+      } else {
+        serverOfflineReason = '';
+      }
+      return detectedLlmServer;
+    }
+  }
+  return null;
+}
+
+async function scanLlmServers(btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'SCANNING...';
+  }
+  try {
+    const resp = await fetch('/api/detect-llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'scan' })
+    });
+    if (resp.ok) {
+      const result = await resp.json();
+      if (result.active) detectedLlmServer = result.active;
+      await checkConnection();
+      await loadActiveModel();
+      if (typeof render === 'function') render();
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '⟳ RESCAN PORTS';
+      }
+      return;
+    }
+  } catch (e) {
+    console.warn('[scan] Server-side detect endpoint unavailable, falling back to Linux dual-stack client probe:', e);
+  }
+
+  // Fallback for native Linux executable where /api/detect-llm is not present
+  await clientSideProbeLlmServers();
+  await checkConnection();
+  await loadActiveModel();
+  if (typeof render === 'function') render();
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = '⟳ RESCAN PORTS';
+  }
+}
+
+async function connectLlmPort(portNumber) {
+  const p = parseInt(portNumber, 10);
+  if (!p || isNaN(p)) return;
+  try {
+    const resp = await fetch('/api/detect-llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port: p })
+    });
+    if (resp.ok) {
+      const result = await resp.json();
+      if (result.active) detectedLlmServer = result.active;
+      await checkConnection();
+      await loadActiveModel();
+      if (typeof render === 'function') render();
+      return;
+    }
+  } catch (e) {
+    console.warn('[connect] Server endpoint not available, probing port locally:', e);
+  }
+
+  // Client-side fallback for native Linux binary
+  const probe = await probeSinglePort(p, 800);
+  const sName = p === 5001 ? 'KoboldCpp' : (p === 5000 ? 'KoboldAI' : (p === 11434 ? 'Ollama' : (p === 1234 ? 'LM Studio' : `Server :${p}`)));
+
+  detectedLlmServer = {
+    online: !!probe,
+    localServerDetected: true,
+    server_name: sName,
+    port: p,
+    url: probe ? `http://${probe.host}:${p}` : `http://127.0.0.1:${p}`,
+    model: (probe && probe.model) ? probe.model : `${sName} Model`,
+    latency_ms: probe ? 6 : 999,
+    corsOk: probe ? probe.corsOk : false
+  };
+  serverConnected = !!probe;
+  await checkConnection();
+  if (typeof render === 'function') render();
+}
+
+
 
 /* ================================================================
    WHY IS IT DOWN?

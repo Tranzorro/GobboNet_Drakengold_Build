@@ -280,3 +280,118 @@
 .landing-preset-installable:hover {
   background: rgba(0, 255, 115, 0.05);
 }
+
+/* ── LLM Engine & Server Detection ── */
+.landing-engine-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.landing-engine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.landing-engine-stat {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.landing-engine-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cyan-dim);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+.landing-engine-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--white);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  word-break: break-word;
+}
+.landing-port-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.landing-port-pill {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  background: rgba(0, 243, 255, 0.05);
+  color: var(--cyan-bright);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: 0.5px;
+}
+.landing-port-pill:hover {
+  background: rgba(0, 243, 255, 0.15);
+  border-color: var(--cyan-bright);
+}
+.landing-port-pill.active {
+  background: rgba(0, 255, 115, 0.15);
+  border-color: var(--green-neon);
+  color: var(--green-neon);
+  box-shadow: 0 0 8px rgba(0, 255, 115, 0.25);
+}
+.landing-custom-port-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.landing-port-input {
+  background: var(--black);
+  border: 1px solid var(--border);
+  color: var(--white);
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  font-family: inherit;
+  width: 170px;
+}
+.landing-port-input:focus {
+  outline: none;
+  border-color: var(--cyan-bright);
+  box-shadow: 0 0 6px rgba(0, 243, 255, 0.3);
+}
+.engine-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green-neon);
+  box-shadow: 0 0 8px var(--green-neon);
+  animation: pulse-glow 2s infinite;
+}
+.engine-pulse-amber {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px var(--amber);
+}
+.engine-pulse-err {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red-neon);
+  box-shadow: 0 0 8px var(--red-neon);
+}
+

@@ -714,6 +714,16 @@ function adoptLegacyThreadOrder(legacyIds) {
 let isGenerating = false;
 let abortController = null;
 let serverConnected = false;
+let detectedLlmServer = {
+  detected: false,
+  type: 'none',
+  name: 'Checking...',
+  port: null,
+  url: '',
+  latency_ms: null,
+  online: false,
+  model: ''
+};
 // Why llama-server is down, straight from the supervisor via /swap-status.
 // Empty when it is up, or when nothing could tell us. serverOfflinePhase
 // separates "failed" from "still loading" -- both leave serverConnected false,

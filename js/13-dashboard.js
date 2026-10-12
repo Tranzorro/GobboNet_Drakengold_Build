@@ -42,10 +42,16 @@ function renderLandingPage() {
   const now = new Date();
   const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
-  // Connection status pill
-  const connHtml = serverConnected
-    ? `<span class="landing-status-ok">&#9679; LLAMA-SERVER ONLINE</span>`
-    : offlineStatusHtml();
+  // Connection status pill reflecting detected LLM server & port
+  let connHtml = '';
+  if (serverConnected) {
+    const sName = (detectedLlmServer && detectedLlmServer.server_name) || 'LLM SERVER';
+    const sPort = (detectedLlmServer && detectedLlmServer.port) ? ` :${detectedLlmServer.port}` : '';
+    const sPing = (detectedLlmServer && detectedLlmServer.latency_ms != null) ? ` (${detectedLlmServer.latency_ms}ms)` : '';
+    connHtml = `<span class="landing-status-ok" title="Endpoint: ${detectedLlmServer?.url || 'local'}">&#9679; ${escapeHtml(sName.toUpperCase())} ONLINE [${escapeHtml(sPort.trim())}${sPing}]</span>`;
+  } else {
+    connHtml = offlineStatusHtml();
+  }
 
   // ── Scheduled tasks ────────────────────────────────────────────
   let schedHtml = '';
@@ -97,11 +103,6 @@ function renderLandingPage() {
       const icon = p.icon || '&#9864;';
       const name = escapeHtml(p.name || 'Unnamed');
       const desc = escapeHtml((p.desc || '').slice(0, 80));
-      // If the preset has full card data, clicking installs it as a new character
-      // card. We pass the array INDEX (not a serialized copy) — embedding a
-      // JSON.stringify'd object in the onclick attribute broke the handler: the
-      // JSON string's leading double-quote closed the attribute, so the click was
-      // a no-op. installDefaultChar looks the preset back up by index.
       const hasCardData = !!(p.writingStyle || p.personality);
       const clickAttr = hasCardData
         ? `onclick="installDefaultChar(${i})" title="Install as character card"`
@@ -118,13 +119,79 @@ function renderLandingPage() {
     }).join('');
   }
 
+  // Active detected server info card
+  const serverNameDisp = escapeHtml(detectedLlmServer?.server_name || 'Checking...');
+  const serverPortDisp = detectedLlmServer?.port ? `Port ${detectedLlmServer.port}` : 'None';
+  const serverLatencyDisp = (detectedLlmServer?.latency_ms != null) ? `(${detectedLlmServer.latency_ms}ms)` : '';
+  const serverModelDisp = escapeHtml(detectedLlmServer?.model || activeModel?.name || 'Default');
+  const serverUrlDisp = escapeHtml(detectedLlmServer?.url || 'http://127.0.0.1:3000');
+  const activePortNum = detectedLlmServer?.port;
+
   return `
     <div class="landing-page">
 
       <div class="landing-header">
         <div class="landing-title">GOBBONET_HQ</div>
-        <div class="landing-subtitle">// local inference terminal &nbsp;|&nbsp; ${connHtml}</div>
-        <div class="landing-subtitle" style="margin-top:4px; color:var(--green-dim);">&#128274; llama.cpp — zero telemetry, fully offline</div>
+        <div class="landing-subtitle">// inference terminal &nbsp;|&nbsp; ${connHtml}</div>
+        <div class="landing-subtitle" style="margin-top:4px; color:var(--green-dim);">&#128274; Universal LLM Server Support &mdash; KoboldCpp, llama.cpp, Ollama &amp; LM Studio</div>
+      </div>
+
+      <!-- LLM Server & Port Detection Section -->
+      <div class="landing-section">
+        <div class="landing-section-header">
+          <span>&#9889; LLM SERVER &amp; PORT DETECTION</span>
+          <button class="btn btn-sm btn-cyan" onclick="scanLlmServers(this)" title="Probe localhost ports for Kobold, llama.cpp, Ollama, LM Studio">⟳ RESCAN PORTS</button>
+        </div>
+        <div class="landing-engine-body">
+          <div class="landing-engine-grid">
+            <div class="landing-engine-stat">
+              <span class="landing-engine-label">DETECTED SERVER</span>
+              <span class="landing-engine-val">
+                <span class="${serverConnected ? 'engine-pulse' : 'engine-pulse-err'}"></span>
+                ${serverNameDisp}
+              </span>
+            </div>
+            <div class="landing-engine-stat">
+              <span class="landing-engine-label">TARGET PORT &amp; LATENCY</span>
+              <span class="landing-engine-val" style="color:var(--cyan-bright);">
+                ${serverPortDisp} <span style="font-size:11px;color:var(--green-neon);">${serverLatencyDisp}</span>
+              </span>
+            </div>
+            <div class="landing-engine-stat">
+              <span class="landing-engine-label">ACTIVE MODEL</span>
+              <span class="landing-engine-val" style="color:var(--amber);">
+                ${serverModelDisp}
+              </span>
+            </div>
+            <div class="landing-engine-stat">
+              <span class="landing-engine-label">PING HEALTH CHECK</span>
+              <span class="landing-engine-val">
+                ${serverConnected ? '<span style="color:var(--green-neon);">&#10003; PING OK</span>' : '<span style="color:var(--red-neon);">&#10007; OFFLINE</span>'}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <div class="landing-engine-label" style="margin-bottom:6px;">QUICK CONNECT / SCAN COMMON PORTS:</div>
+            <div class="landing-port-bar">
+              <button class="landing-port-pill ${activePortNum === 5001 ? 'active' : ''}" onclick="connectLlmPort(5001)" title="KoboldCpp port">KoboldCpp (:5001)</button>
+              <button class="landing-port-pill ${activePortNum === 5000 ? 'active' : ''}" onclick="connectLlmPort(5000)" title="KoboldAI port">KoboldAI (:5000)</button>
+              <button class="landing-port-pill ${activePortNum === 11437 ? 'active' : ''}" onclick="connectLlmPort(11437)" title="llama.cpp port">llama.cpp (:11437)</button>
+              <button class="landing-port-pill ${activePortNum === 11434 ? 'active' : ''}" onclick="connectLlmPort(11434)" title="Ollama port">Ollama (:11434)</button>
+              <button class="landing-port-pill ${activePortNum === 1234 ? 'active' : ''}" onclick="connectLlmPort(1234)" title="LM Studio port">LM Studio (:1234)</button>
+              <button class="landing-port-pill ${activePortNum === 8080 ? 'active' : ''}" onclick="connectLlmPort(8080)" title="llama-server port">llama-server (:8080)</button>
+              <button class="landing-port-pill ${activePortNum === 8000 ? 'active' : ''}" onclick="connectLlmPort(8000)" title="vLLM port">vLLM (:8000)</button>
+            </div>
+
+            <div class="landing-custom-port-form">
+              <span class="landing-engine-label" style="align-self:center;">PING CUSTOM PORT:</span>
+              <input type="number" id="custom-port-input" class="landing-port-input" placeholder="e.g. 5001" min="1" max="65535"
+                     onkeydown="if(event.key==='Enter'){event.preventDefault();connectLlmPort(this.value);}">
+              <button class="btn btn-sm" onclick="connectLlmPort(document.getElementById('custom-port-input').value)">PING &amp; CONNECT</button>
+              <button class="btn btn-sm btn-cyan" onclick="scanLlmServers(this)">AUTO-SCAN ALL</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="landing-section">
