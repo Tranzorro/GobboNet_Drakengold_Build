@@ -279,6 +279,96 @@ function getThreadLore(thread) {
   return (thread && thread.lore) || '';
 }
 
+function normalizeSessionMemory(thread) {
+  if (!thread) return [];
+  if (!Array.isArray(thread.sessionMemory)) thread.sessionMemory = [];
+  const cleaned = [];
+  for (const item of thread.sessionMemory) {
+    if (!item || typeof item !== 'object') continue;
+    const text = String(item.text || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    cleaned.push({
+      id: item.id || ('mem-' + Date.now() + '-' + cleaned.length),
+      text: text.length > 260 ? (text.slice(0, 257).trim() + '…') : text,
+      category: item.category || 'fact',
+      createdAt: Number(item.createdAt) || Date.now(),
+      updatedAt: Number(item.updatedAt) || Date.now()
+    });
+  }
+  thread.sessionMemory = cleaned.slice(0, 12);
+  return thread.sessionMemory;
+}
+
+function extractSessionMemoryNotes(messages) {
+  const notes = [];
+  const seen = new Set();
+  const source = Array.isArray(messages) ? messages.slice(-30) : [];
+  for (const msg of source) {
+    if (!msg || !msg.content) continue;
+    const text = String(msg.content).replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const patterns = [
+      /(important|remember|must remember|key fact|do not forget|critical|keep in mind|note to self|session note)\s*[:\-]?\s*(.+)/i,
+      /(?:i(?:'m| am)|we are|my name is|our names are|his name is|her name is|their name is|she is|he is|they are|this is|that is)\s+(.{10,120})/i,
+      /(?:lives in|works at|comes from|belongs to|is from|is in|is staying at|is meeting|will meet|promised to|agreed to|decided to|plans to)\s+(.{8,150})/i
+    ];
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (!m) continue;
+      const value = String(m[1] || m[0] || '').replace(/^.*?[:\-]\s*/i, '').trim();
+      const note = value.replace(/\s+/g, ' ').trim();
+      if (!note || note.length < 8 || note.length > 220) continue;
+      const key = note.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        notes.push({ text: note, category: 'fact', createdAt: Date.now(), updatedAt: Date.now() });
+      }
+      break;
+    }
+  }
+  return notes;
+}
+
+function getThreadSessionMemory(thread) {
+  if (!thread) return [];
+  const stored = normalizeSessionMemory(thread);
+  const derived = extractSessionMemoryNotes(thread.messages || []);
+  const merged = [...stored, ...derived].filter(Boolean);
+  const deduped = [];
+  const seen = new Set();
+  for (const item of merged) {
+    const key = String(item.text || '').toLowerCase();
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+  thread.sessionMemory = deduped.slice(0, 12);
+  return thread.sessionMemory;
+}
+
+function buildSessionMemoryBlock(thread) {
+  const mem = getThreadSessionMemory(thread);
+  if (!mem || mem.length === 0) return '';
+  const lines = mem.map(item => '- ' + item.text);
+  return '[Thread continuity memory — important details to keep alive]\n' + lines.join('\n');
+}
+
+function buildSpatialAwarenessBlock(card, persona) {
+  const charName = (card && card.name) ? card.name : 'Assistant';
+  const userName = (persona && persona.name) || 'the user';
+  return [
+    '[Scene geometry and body-awareness]',
+    '- Treat anatomy, body position, facing, and line-of-sight as real constraints.',
+    '- Never describe impossible viewing angles, impossible body placement, or line-of-sight through solid objects.',
+    '- If the user already understands the obstacle or angle, do not restate it unless it changes the response.',
+    '- Keep character positions and body orientation consistent across the scene.',
+    '- Prefer natural, physically plausible actions and descriptions; avoid “looking through” walls, ceilings, closed doors, or other impossible occlusion.',
+    '- When a reply would require impossible anatomy or viewpoint, choose the simplest physically plausible alternative and stay in-world.',
+    '- Use ' + userName + ' as the understood observer unless the scene explicitly says otherwise.'
+  ].join('\n');
+}
+
 function setThreadLore(thread, lore) {
   if (thread) thread.lore = lore;
 }

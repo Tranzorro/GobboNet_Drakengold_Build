@@ -1189,6 +1189,13 @@ async function buildContextMessages(thread, card, opts) {
     apiMessages.push({ role: 'system',
       content: '[Story so far \u2014 summary of earlier messages]\n' + translateTemplates(summary, charName, userName) });
   }
+  const sessionMemoryBlock = buildSessionMemoryBlock(thread);
+  if (sessionMemoryBlock) {
+    apiMessages.push({ role: 'system', content: translateTemplates(sessionMemoryBlock, charName, userName) });
+  }
+
+  // ---- 4. SPATIAL AWARENESS (hard guidance for anatomy + line-of-sight) ----
+  apiMessages.push({ role: 'system', content: buildSpatialAwarenessBlock(card, personaForBuild) });
 
   // ---- RAG retrieval (Stage 1) ----
   // Carve the retrieval budget from the SAME accounting the budgeter already

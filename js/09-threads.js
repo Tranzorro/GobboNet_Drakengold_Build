@@ -249,6 +249,9 @@ function createThread() {
     // (card.startingLore) and is injected fresh each build, so we no longer
     // seed it here — that kept the two cleanly separated (see buildContextMessages).
     lore: '',
+    // Session continuity facts are persisted on the thread itself so the app can
+    // resume after a reload without losing the model's important anchors.
+    sessionMemory: [],
     createdAt: Date.now(),
     pinned: false,
     folderId: null,
